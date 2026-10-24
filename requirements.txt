@@ -1,9 +1,13 @@
-numpy
-matplotlib
-seaborn
-scikit-learn
-wordcloud
-nltk
-xgboost
-streamlit
-flask
+flask>=3.1
+gunicorn>=23.0
+numpy>=1.26
+pandas>=2.2
+matplotlib>=3.9
+nltk>=3.9
+scikit-learn>=1.5
+xgboost>=2.1
+requests>=2.32
+streamlit>=1.50
+# only needed to re-run the exploration notebook
+seaborn>=0.13
+wordcloud>=1.9
