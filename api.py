@@ -1,18 +1,44 @@
-from flask import Flask, request, jsonify, send_file, render_template
+import base64
+import os
+import pickle
 import re
 from io import BytesIO
 
-# nltk.download('stopwords')
+import matplotlib
+
+matplotlib.use("Agg")  # headless backend so charts render on servers without a display
+
+import matplotlib.pyplot as plt
+import nltk
+import pandas as pd
+from flask import Flask, jsonify, render_template, request, send_file
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
-import matplotlib.pyplot as plt
-import pandas as pd
-import pickle
-import base64
 
+nltk.download("stopwords", quiet=True)
 STOPWORDS = set(stopwords.words("english"))
 
+MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
+
 app = Flask(__name__)
+
+_models = None
+
+
+def load_models():
+    """Load the trained model files once. Trains them first if Models/ is missing."""
+    global _models
+    if _models is None:
+        if not os.path.exists(os.path.join(MODELS_DIR, "model_xgb.pkl")):
+            import train
+
+            train.main()
+        loaded = []
+        for name in ("model_xgb.pkl", "scaler.pkl", "countVectorizer.pkl"):
+            with open(os.path.join(MODELS_DIR, name), "rb") as f:
+                loaded.append(pickle.load(f))
+        _models = tuple(loaded)
+    return _models
 
 
 @app.route("/test", methods=["GET"])
@@ -27,10 +53,7 @@ def home():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    # Select the predictor to be loaded from Models folder
-    predictor = pickle.load(open(r"Models/model_xgb.pkl", "rb"))
-    scaler = pickle.load(open(r"Models/scaler.pkl", "rb"))
-    cv = pickle.load(open(r"Models/countVectorizer.pkl", "rb"))
+    predictor, scaler, cv = load_models()
     try:
         # Check if the request contains a file (for bulk prediction) or text input
         if "file" in request.files:
@@ -55,12 +78,15 @@ def predict():
 
             return response
 
-        elif "text" in request.json:
+        payload = request.get_json(silent=True) or {}
+        if "text" in payload:
             # Single string prediction
-            text_input = request.json["text"]
+            text_input = payload["text"]
             predicted_sentiment = single_prediction(predictor, scaler, cv, text_input)
 
             return jsonify({"prediction": predicted_sentiment})
+
+        return jsonify({"error": "Send a CSV file or a JSON body like {\"text\": \"...\"}"}), 400
 
     except Exception as e:
         return jsonify({"error": str(e)})
@@ -111,10 +137,11 @@ def bulk_prediction(predictor, scaler, cv, data):
 
 def get_distribution_graph(data):
     fig = plt.figure(figsize=(5, 5))
-    colors = ("green", "red")
     wp = {"linewidth": 1, "edgecolor": "black"}
     tags = data["Predicted sentiment"].value_counts()
-    explode = (0.01, 0.01)
+    # Size colors/explode to the classes actually present (a file can be all one sentiment).
+    colors = ["green" if label == "Positive" else "red" for label in tags.index]
+    explode = [0.01] * len(tags)
 
     tags.plot(
         kind="pie",
@@ -144,4 +171,4 @@ def sentiment_mapping(x):
 
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=os.getenv("FLASK_DEBUG") == "1")

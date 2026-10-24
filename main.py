@@ -1,10 +1,12 @@
-import streamlit as st
-import pandas as pd
-import requests
+import os
 from io import BytesIO
 
-# flask --app api.py run --port=5000
-prediction_endpoint = "http://127.0.0.1:5000/predict"
+import pandas as pd
+import requests
+import streamlit as st
+
+# Start the API first:  flask --app api.py run --port=5000
+prediction_endpoint = os.getenv("PREDICTION_ENDPOINT", "http://127.0.0.1:5000/predict")
 
 st.title("Text Sentiment Predictor")
 
@@ -32,6 +34,6 @@ if st.button("Predict"):
         )
 
     else:
-        response = requests.post(prediction_endpoint, data={"text": user_input})
+        response = requests.post(prediction_endpoint, json={"text": user_input})
         response = response.json()
         st.write(f"Predicted sentiment: {response['prediction']}")
