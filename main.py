@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from io import BytesIO
 
-# flask --app api.py run --port=5000
+# Start the API first in another terminal:  python api.py
 prediction_endpoint = "http://127.0.0.1:5000/predict"
 
 st.title("Text Sentiment Predictor")
@@ -23,6 +23,8 @@ if st.button("Predict"):
         response = requests.post(prediction_endpoint, files=file)
         response_bytes = BytesIO(response.content)
         response_df = pd.read_csv(response_bytes)
+        response_bytes.seek(0)
+        st.dataframe(response_df)
 
         st.download_button(
             label="Download Predictions",
@@ -32,6 +34,6 @@ if st.button("Predict"):
         )
 
     else:
-        response = requests.post(prediction_endpoint, data={"text": user_input})
+        response = requests.post(prediction_endpoint, json={"text": user_input})
         response = response.json()
         st.write(f"Predicted sentiment: {response['prediction']}")
