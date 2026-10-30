@@ -1,16 +1,33 @@
 from flask import Flask, request, jsonify, send_file, render_template
+import os
 import re
 from io import BytesIO
 
-# nltk.download('stopwords')
+import nltk
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
+import matplotlib
+
+matplotlib.use("Agg")  # render charts without a display (needed inside a web server)
 import matplotlib.pyplot as plt
 import pandas as pd
 import pickle
 import base64
 
+nltk.download("stopwords", quiet=True)
 STOPWORDS = set(stopwords.words("english"))
+
+MODELS_DIR = "Models"
+if not os.path.exists(os.path.join(MODELS_DIR, "model_xgb.pkl")):
+    print("Model files not found - training the model now (takes under a minute)...")
+    import train_model
+
+    train_model.main()
+
+# Load the trained model, scaler and vectorizer once at startup.
+predictor = pickle.load(open(os.path.join(MODELS_DIR, "model_xgb.pkl"), "rb"))
+scaler = pickle.load(open(os.path.join(MODELS_DIR, "scaler.pkl"), "rb"))
+cv = pickle.load(open(os.path.join(MODELS_DIR, "countVectorizer.pkl"), "rb"))
 
 app = Flask(__name__)
 
@@ -27,10 +44,6 @@ def home():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    # Select the predictor to be loaded from Models folder
-    predictor = pickle.load(open(r"Models/model_xgb.pkl", "rb"))
-    scaler = pickle.load(open(r"Models/scaler.pkl", "rb"))
-    cv = pickle.load(open(r"Models/countVectorizer.pkl", "rb"))
     try:
         # Check if the request contains a file (for bulk prediction) or text input
         if "file" in request.files:
@@ -55,15 +68,18 @@ def predict():
 
             return response
 
-        elif "text" in request.json:
+        payload = request.get_json(silent=True) or request.form
+        if "text" in payload:
             # Single string prediction
-            text_input = request.json["text"]
+            text_input = payload["text"]
             predicted_sentiment = single_prediction(predictor, scaler, cv, text_input)
 
             return jsonify({"prediction": predicted_sentiment})
 
+        return jsonify({"error": "Send a CSV file or a 'text' field."}), 400
+
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 def single_prediction(predictor, scaler, cv, text_input):
@@ -86,7 +102,7 @@ def bulk_prediction(predictor, scaler, cv, data):
     corpus = []
     stemmer = PorterStemmer()
     for i in range(0, data.shape[0]):
-        review = re.sub("[^a-zA-Z]", " ", data.iloc[i]["Sentence"])
+        review = re.sub("[^a-zA-Z]", " ", str(data.iloc[i]["Sentence"]))
         review = review.lower().split()
         review = [stemmer.stem(word) for word in review if not word in STOPWORDS]
         review = " ".join(review)
@@ -111,10 +127,11 @@ def bulk_prediction(predictor, scaler, cv, data):
 
 def get_distribution_graph(data):
     fig = plt.figure(figsize=(5, 5))
-    colors = ("green", "red")
     wp = {"linewidth": 1, "edgecolor": "black"}
     tags = data["Predicted sentiment"].value_counts()
-    explode = (0.01, 0.01)
+    # Size colors/explode to the number of slices (a file may contain only one sentiment).
+    colors = [("green" if label == "Positive" else "red") for label in tags.index]
+    explode = [0.01] * len(tags)
 
     tags.plot(
         kind="pie",
@@ -144,4 +161,4 @@ def sentiment_mapping(x):
 
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(port=5000, debug=False)
